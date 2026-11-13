@@ -1,0 +1,24 @@
+{
+  "dependencies": {
+    "com.unity.ai.navigation": "1.1.5",
+    "com.unity.inputsystem": "1.7.0",
+    "com.unity.netcode.gameobjects": "1.8.1",
+    "com.unity.render-pipelines.universal": "14.0.11",
+    "com.unity.services.authentication": "2.7.1",
+    "com.unity.services.core": "1.12.5",
+    "com.unity.services.lobby": "1.1.0",
+    "com.unity.services.relay": "1.0.5",
+    "com.unity.services.vivox": "16.0.0",
+    "com.unity.transport": "1.4.0",
+    "com.unity.textmeshpro": "3.0.6",
+    "com.unity.ugui": "1.0.0",
+    "com.unity.modules.ai": "1.0.0",
+    "com.unity.modules.androidjni": "1.0.0",
+    "com.unity.modules.animation": "1.0.0",
+    "com.unity.modules.audio": "1.0.0",
+    "com.unity.modules.imageconversion": "1.0.0",
+    "com.unity.modules.physics": "1.0.0",
+    "com.unity.modules.ui": "1.0.0",
+    "com.unity.modules.unitywebrequest": "1.0.0"
+  }
+}
