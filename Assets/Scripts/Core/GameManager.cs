@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
@@ -45,7 +44,9 @@ namespace HauntedNight.Core
 
         public int RequiredKeys => requiredKeys;
 
+        /// <summary>Survivors still in the match. Server-side truth; PlayersAlive mirrors it.</summary>
         private readonly HashSet<ulong> _alivePlayers = new();
+        private float _timerAccumulator;
 
         private void Awake()
         {
@@ -56,19 +57,40 @@ namespace HauntedNight.Core
 
         public override void OnNetworkSpawn()
         {
-            if (IsServer)
-            {
-                TimeRemaining.Value = missionTimeLimit;
-                State.Value = MatchState.Playing;
-                PlayersAlive.Value = NetworkManager.Singleton.ConnectedClientsIds.Count;
-            }
+            if (!IsServer) return;
+
+            // seed the alive set - without this the set stays empty and nobody can ever
+            // escape or die, which silently disables the win/lose conditions
+            _alivePlayers.Clear();
+            foreach (ulong clientId in NetworkManager.Singleton.ConnectedClientsIds)
+                _alivePlayers.Add(clientId);
+
+            _timerAccumulator = 0f;
+            TimeRemaining.Value = missionTimeLimit;
+            KeysCollected.Value = 0;
+            PlayersAlive.Value = _alivePlayers.Count;
+            State.Value = MatchState.Playing;
+        }
+
+        /// <summary>Called by PlayerSpawner for every player object it creates.</summary>
+        public void ServerRegisterPlayer(ulong clientId)
+        {
+            if (!IsServer) return;
+            if (!_alivePlayers.Add(clientId)) return;
+            PlayersAlive.Value = _alivePlayers.Count;
         }
 
         private void Update()
         {
             if (!IsServer || State.Value != MatchState.Playing) return;
 
-            TimeRemaining.Value = Mathf.Max(0f, TimeRemaining.Value - Time.deltaTime);
+            // write the timer about once a second instead of every frame - a per-frame
+            // NetworkVariable write is 60 redundant packets/second per client
+            _timerAccumulator += Time.deltaTime;
+            if (_timerAccumulator < 1f) return;
+
+            _timerAccumulator = 0f;
+            TimeRemaining.Value = Mathf.Max(0f, TimeRemaining.Value - 1f);
             if (TimeRemaining.Value <= 0f) Wipe("Time ran out - the night took you.");
         }
 
@@ -87,20 +109,24 @@ namespace HauntedNight.Core
 
         public void ServerPlayerEscaped(ulong clientId)
         {
-            if (!IsServer) return;
+            if (!IsServer || State.Value != MatchState.Playing) return;
             if (!_alivePlayers.Remove(clientId)) return;
+
+            PlayersAlive.Value = _alivePlayers.Count;
+            NotifyClientRpc("A survivor reached the exit.", 1);
 
             if (_alivePlayers.Count == 0 && AllKeysFound)
             {
                 State.Value = MatchState.Escaped;
-                EndMatchClientRpc(true);
+                EndMatchClientRpc(true, "Everyone got out. The night lost.");
             }
         }
 
         public void ServerPlayerDied(ulong clientId, string cause)
         {
-            if (!IsServer) return;
+            if (!IsServer || State.Value != MatchState.Playing) return;
             if (!_alivePlayers.Remove(clientId)) return;
+
             PlayersAlive.Value = _alivePlayers.Count;
             NotifyClientRpc($"A survivor was lost: {cause}", 2);
             if (_alivePlayers.Count == 0) Wipe("No survivors left.");
@@ -110,14 +136,16 @@ namespace HauntedNight.Core
         {
             if (!IsServer || State.Value != MatchState.Playing) return;
             State.Value = MatchState.Wiped;
-            EndMatchClientRpc(false);
+            EndMatchClientRpc(false, reason);
         }
 
         [ClientRpc]
-        private void EndMatchClientRpc(bool escaped)
+        private void EndMatchClientRpc(bool escaped, string reason)
         {
-            State.Value = escaped ? MatchState.Escaped : MatchState.Wiped;
-            Debug.Log($"[Match] ended. escaped={escaped}");
+            // clients must NOT write State: it is a server-write NetworkVariable, so a
+            // client assignment throws and the value is replicated anyway
+            Debug.Log($"[Match] ended. escaped={escaped}. {reason}");
+            HudController.Instance?.ShowBanner(reason, escaped ? 1 : 2);
         }
 
         [ClientRpc]
@@ -132,6 +160,12 @@ namespace HauntedNight.Core
         public void ServerLoadMap(int mapIndex)
         {
             if (!IsServer) return;
+            if (mapScenes == null || mapScenes.Length == 0)
+            {
+                Debug.LogError("[GameManager] No map scenes configured.");
+                return;
+            }
+
             MapIndex.Value = Mathf.Clamp(mapIndex, 0, mapScenes.Length - 1);
             State.Value = MatchState.Loading;
             NetworkManager.Singleton.SceneManager.LoadScene(mapScenes[MapIndex.Value], LoadSceneMode.Single);
@@ -140,6 +174,7 @@ namespace HauntedNight.Core
         public void ServerReturnToMenu()
         {
             if (!IsServer) return;
+            State.Value = MatchState.Lobby;
             NetworkManager.Singleton.SceneManager.LoadScene(mainMenuScene, LoadSceneMode.Single);
         }
     }

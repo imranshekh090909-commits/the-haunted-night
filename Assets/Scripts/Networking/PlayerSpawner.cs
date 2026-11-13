@@ -25,6 +25,9 @@ namespace HauntedNight.Networking
                 var instance = Instantiate(playerPrefab, point.position, point.rotation);
                 var netObject = instance.GetComponent<NetworkObject>();
                 netObject.SpawnAsPlayerObject(clientId, true);
+
+                // let the match know this survivor is alive, so escape / wipe can fire
+                Core.GameManager.Instance?.ServerRegisterPlayer(clientId);
                 index++;
             }
         }
